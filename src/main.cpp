@@ -2,7 +2,6 @@
 #include <SPI.h>
 #include <stdio.h>
 #include "Pines.h"
-#include "LoRa_E32.h"
 #include "LoRa.h"
 
 

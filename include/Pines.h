@@ -1,32 +1,31 @@
-/*! 
+/*
     Pines usados para la comunicación con los módulos Lora
- */
+*/
 
 //Definimos pines para la comunicación SPI
 #define MISO 12         
 #define MOSI 13
 #define SCK 14
 
-//Definimos pines para el modulo 1 (RFM95W)
-#define DIO0_1 26
-#define DIO1_1 25
-#define DIO2_1 33
-#define RST1 27
-#define SS1 32
+//Definimos pines para el modulo 1 (RFM98W)
+#define DIO0_1 25
+#define DIO1_1 23
+#define DIO2_1 32
+#define RST1 26
+#define SS1 37
 
-//Definimos pines para el modulo 2 (LORA1276V2.0)
-#define DIO0_2 19
-#define DIO1_2 21
-#define DIO2_2 22
+//Definimos pines para el modulo 2 (RA-02)
+#define DIO0_2 21
+#define DIO1_2 22
+#define DIO2_2 23
 #define RST2 19
-#define SS2 23
+#define SS2 18
 
-//Definimos pines para el modulo 3 (E32-433T30D)
+//Definimos pines para el modulo 3 (RN2903-I/RM)
 #define RX 4
 #define TX 16
-#define AUX 15
-#define M0 5
-#define M1 17
+#define CTS 15
+#define FLAG 17
 
 //Definimos pines para selección y led
 #define SEL1 36
