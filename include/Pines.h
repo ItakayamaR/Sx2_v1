@@ -26,6 +26,7 @@
 #define TX 16
 #define CTS 15
 #define FLAG 17
+#define RST3 5
 
 //Definimos pines para selección y led
 #define SEL1 36

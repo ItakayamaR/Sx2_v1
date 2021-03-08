@@ -1,3 +1,19 @@
+/*
+  Programa para pruebas con los modulos lora RFM98W, RA-02 (433) y RN2903 (915)
+  Empresa: Diacsa
+  Autor: Ismael Takayama
+    
+    Se usaron las librerias Lora.h de Sandeep Mistry y rn2xx3.h de jpmeijers
+    Datasheets:
+    RFM98W: https://cdn.sparkfun.com/assets/learn_tutorials/8/0/4/RFM95_96_97_98W.pdf
+    RA-02: https://docs.ai-thinker.com/_media/lora/docs/c048ps01a1_ra-02_product_specification_v1.1.pdf
+    RN2903: https://ww1.microchip.com/downloads/en/DeviceDoc/RN2903-Data-Sheet-DS50002390J.pdf
+
+    User guide:
+    RN2903: https://ww1.microchip.com/downloads/en/DeviceDoc/RN2903%20LoRa%20Technology%20Module%20Command%20Reference%20User%20Guide-40001811B.pdf 
+
+*/
+
 #include <Arduino.h>
 #include <SPI.h>
 #include <stdio.h>
@@ -6,12 +22,15 @@
 
 
 //Definiciones para la libreria
-#define LORA_BW               125E3
-#define LORA_SP               12
-#define LORA_CHANNEL          915E6
-#define LORA_SYNCWORD         0x12
+#define LORA_BW               125E3         //Bandwith
+#define LORA_SP               12            //Spreading Factor
+#define LORA_CHANNEL          915E6   
+#define LORA_SYNCWORD         0x12          
+#define LORA_CR               5             //Coding rate (4/x)
+#define LORA_PL               8             //Preamble length (x+4)
 #define LORA_ADDRESS          4
 #define LORA_SEND_TO_ADDRESS  2
+
 
 byte MODO = 0;
 byte MODO_ANT = 0;
@@ -67,8 +86,7 @@ void setup()
   //Iniciamos los modulos en reset
   digitalWrite(RST1,0);
   digitalWrite(RST2,0);
-  digitalWrite(M0,1);
-  digitalWrite(M1,1);
+  digitalWrite(RST3,0);
   
 }
 
@@ -280,8 +298,8 @@ void Ini_module_spi(byte m)
   LoRa.setSyncWord(LORA_SYNCWORD);        //Seteamos la dirección de sincronización
   LoRa.setSpreadingFactor(LORA_SP);             //Seteamos el Spreading Factor (SP)
   LoRa.setSignalBandwidth(LORA_BW);         //Seteamos El ancho de banda
-  LoRa.setCodingRate4(5);                 //Seteamos el Coding rate (4/(x-4))
-  LoRa.setPreambleLength(8);              //Seteamos la longitud del preambulo (x+4)
+  LoRa.setCodingRate4(LORA_CR);                 //Seteamos el Coding rate (4/(x))
+  LoRa.setPreambleLength(LORA_PL);              //Seteamos la longitud del preambulo (x+4)
 
 
   // Mensaje de comprobación
@@ -326,8 +344,7 @@ void Ini_module3(){
 }
 
 void End_module3(){
-  digitalWrite(M0,1);
-  digitalWrite(M1,1);  
+  digitalWrite(RST3,1); 
 }
 
 void End_module_spi(){

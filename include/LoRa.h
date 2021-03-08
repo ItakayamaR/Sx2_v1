@@ -71,9 +71,6 @@ public:
   
   void setGain(uint8_t gain); // Set LNA gain
 
-  // deprecated
-  void crc() { enableCrc(); }
-  void noCrc() { disableCrc(); }
 
   byte random();
 
