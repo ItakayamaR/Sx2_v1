@@ -19,7 +19,7 @@
 #include <stdio.h>
 #include "Pines.h"
 #include "LoRa.h"
-
+#include "rn2xx3.h"
 
 //Definiciones para la libreria
 #define LORA_BW               125E3         //Bandwith
@@ -41,13 +41,13 @@ char message_sent[]="hola";
 int delay_time=5;
 int counter=0;
 
-//Configuramos la clase para el módulo 3
-LoRa_E32 E32_433(RX, TX, &Serial1, AUX, M0, M1);  // e32 TX e32 RX 
+//Creamos una instancia de rnx2xx3 para la comunicación con el módulo 3
+rn2xx3 myLora(Serial1);
 
+//Funciones usadas en el programa
 void Ini_module_spi(byte m); 
 void Ini_module3();
-void End_module3();
-void End_module_spi();
+void End_modules();
 void EnableDevice(byte m);
 uint8_t send_message(uint8_t module, char *message, uint8_t seconds, boolean control=false);
 uint8_t receive_message(uint8_t module, char seconds, boolean control=false);
@@ -61,7 +61,7 @@ void setup()
   pinMode(SEL1, INPUT);
   pinMode(SEL2, INPUT);
 
-  //Inicializamos pines del módulo 1
+  //Inicializamos pines del módulo 1 (RFM98W)
   pinMode(DIO0_1, INPUT);
   pinMode(DIO1_1, INPUT);
   pinMode(DIO2_1, INPUT);
@@ -69,7 +69,7 @@ void setup()
   pinMode(SS1, OUTPUT);
   digitalWrite(SS1,HIGH);
 
-  //Inicializamos pines del módulo 2
+  //Inicializamos pines del módulo 2 (RA-02)
   pinMode(DIO0_2, INPUT);
   pinMode(DIO1_2, INPUT);
   pinMode(DIO2_2, INPUT);
@@ -77,10 +77,11 @@ void setup()
   pinMode(SS2, OUTPUT);
   digitalWrite(SS2,HIGH);
 
-  //Iniciamos comunicación para el Módulo 3
-  E32_433.begin();
+  //Inicializamos pines del módulo 3 (RN2903)
+  pinMode(FLAG, INPUT);
+  pinMode(RST3, OUTPUT);
 
-  // Abrimos comunicaciones para observar 
+  // Abrimos puerto serial a computadora
   Serial.begin(115200); 
 
   //Iniciamos los modulos en reset
@@ -106,7 +107,6 @@ void loop(void)
   //status=send_message(MODO, message_sent, delay_time, true); (Modulo de emision, mensaje a enviar, delay entre mensajes, con/sin mensaje de confirmación)
   status=receive_message(MODO, 20, true);
 
-
   //Serial.println(status);
   delay(100);
 }
@@ -120,14 +120,11 @@ uint8_t send_message(uint8_t module, char *message, uint8_t seconds, boolean con
      //Prendemos el led
     digitalWrite(LED,1);
     LoRa.beginPacket();
-    /*
     LoRa.print("N°: ");
     LoRa.print(counter);
     LoRa.print(" ");
     LoRa.print("Msg: ");
-    LoRa.print(message);*/
-
-    LoRa.print("A");
+    LoRa.print(message);
     LoRa.endPacket();
     digitalWrite(LED,0);
 
@@ -157,42 +154,7 @@ uint8_t send_message(uint8_t module, char *message, uint8_t seconds, boolean con
     }  
 
   } else if (module == 3){
-    //enviamos un mensaje
-    char *Count = (char*)malloc(40);
-    sprintf(Count, "N°: %u, Msg: ", counter);
-
-
-    //enviamos un mensaje
-    digitalWrite(LED,1);
-    ResponseStatus rs = E32_433.sendMessage(strcat(Count,message));
-    digitalWrite(LED,0);
-    if (rs.getResponseDescription() == "Success"){
-      Serial.println("Messaje sent");
-      Serial.println(message);
-      Serial.print("Messaje N°: ");
-      Serial.println(counter);
-      status=1;
-    } else{
-      Serial.println("Error");
-    }
-    free(Count); 
-
-    if(control == true){
-      for (i=0; i < 10; i++) {
-        if (E32_433.available() > 1){
-          ResponseContainer rs = E32_433.receiveMessage();
-          if (rs.status.getResponseDescription() == "Success"){
-            if (rs.data == "OK")
-            Serial.println("Message confirmed");
-            break;
-          } 
-        } else {
-            Serial.println("Waiting for confirmation");
-        }
-        delay(1000);
-        if (i==10) Serial.println("No confirmation");
-      } 
-    }
+    
   }
   Serial.println(""); 
   counter++;
@@ -243,36 +205,7 @@ uint8_t receive_message(uint8_t module, char seconds, boolean control){
     }
 
   } else if (module == 3){
-    //Esperamos a recibir un mensaje
-    while (i < seconds) {
-      if (E32_433.available() > 1){
-        ResponseContainer rs = E32_433.receiveMessage();
-        if (rs.status.getResponseDescription() == "Success"){
-          Serial.print("Received packet: '");
-          Serial.println(rs.data);
-
-          //Enviamos confirmación
-          if (control==true){
-            Serial.println("Sending confirmation"); 
-            E32_433.sendMessage("OK");
-          }
-
-          //Prendemos el led por 0.5s
-          digitalWrite(LED,1);
-          delay(500);
-          digitalWrite(LED,0);
-          status=1;
-          break;
-        } 
-      } else {
-          Serial.println("Waiting for message");
-      }
-      delay(1000);
-      i++;
-    }
-
     
-    Serial.println(""); 
   }
   if (status == 0) { Serial.println("No message received"); }
   Serial.println("");
@@ -295,9 +228,9 @@ void Ini_module_spi(byte m)
     delay(500);
   }
 
-  LoRa.setSyncWord(LORA_SYNCWORD);        //Seteamos la dirección de sincronización
+  LoRa.setSyncWord(LORA_SYNCWORD);              //Seteamos la dirección de sincronización
   LoRa.setSpreadingFactor(LORA_SP);             //Seteamos el Spreading Factor (SP)
-  LoRa.setSignalBandwidth(LORA_BW);         //Seteamos El ancho de banda
+  LoRa.setSignalBandwidth(LORA_BW);             //Seteamos El ancho de banda
   LoRa.setCodingRate4(LORA_CR);                 //Seteamos el Coding rate (4/(x))
   LoRa.setPreambleLength(LORA_PL);              //Seteamos la longitud del preambulo (x+4)
 
@@ -308,54 +241,23 @@ void Ini_module_spi(byte m)
 
 }
 
+void Ini_module3()
+{
+  // Abrimos puerto serial del módulo 3 (RN2903)
+  Serial1.begin(9600, SERIAL_8N1, RX, TX);
 
-void Ini_module3(){
-  digitalWrite(M0,1);
-  digitalWrite(M1,1);
-  
-  ResponseStructContainer c;
-	c = E32_433.getConfiguration();
-	// It's important get configuration pointer before all other operation
-	Configuration configuration = *(Configuration*) c.data;
-	Serial.println(c.status.getResponseDescription());
-	Serial.println(c.status.code);
-
-	printParameters(configuration);
-	configuration.ADDL = 0x0;
-	configuration.ADDH = 0x1;
-	configuration.CHAN = 0x19;
-
-	configuration.OPTION.fec = FEC_1_ON;
-	configuration.OPTION.fixedTransmission = FT_TRANSPARENT_TRANSMISSION;
-	configuration.OPTION.ioDriveMode = IO_D_MODE_PUSH_PULLS_PULL_UPS;
-	configuration.OPTION.transmissionPower = POWER_30;
-	configuration.OPTION.wirelessWakeupTime = WAKE_UP_1250;
-
-	configuration.SPED.airDataRate = AIR_DATA_RATE_000_03;
-	configuration.SPED.uartBaudRate = UART_BPS_9600;
-	configuration.SPED.uartParity = MODE_00_8N1;
-
-	// Set configuration changed and set to not hold the configuration
-	ResponseStatus rs = E32_433.setConfiguration(configuration, WRITE_CFG_PWR_DWN_LOSE);
-	Serial.println(rs.getResponseDescription());
-	Serial.println(rs.code);
-	printParameters(configuration);
-	c.close();
 }
 
-void End_module3(){
-  digitalWrite(RST3,1); 
-}
-
-void End_module_spi(){
+void End_modules(){
+  Serial1.end();
   LoRa.end();
   digitalWrite(RST1,1);
   digitalWrite(RST2,1);
+  digitalWrite(RST3,1);
 }
 
 void EnableDevice(byte m){
-  End_module_spi();
-  End_module3();
+  End_modules();
   
   switch(m)
   {

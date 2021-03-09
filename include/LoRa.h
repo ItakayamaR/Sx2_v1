@@ -71,7 +71,6 @@ public:
   
   void setGain(uint8_t gain); // Set LNA gain
 
-
   byte random();
 
   void setPins(int8_t sck= LORA_DEFAULT_SCK_PIN, int8_t miso = LORA_DEFAULT_MISO_PIN, int8_t mosi= LORA_DEFAULT_MOSI_PIN, 
