@@ -79,18 +79,18 @@ LoRaClass::LoRaClass() :
   _onReceive(NULL),
   _onTxDone(NULL)
 {
-  // overide Stream timeout value
+  // Seteamos tiempo de espera en 0 (luego se dará un tiempo basado en número de símbolos)
   setTimeout(0);
 }
 
+// Función usada para configurar el módulo. Se setea la frecuencia y la potencia de transmisión.
 int LoRaClass::begin(long frequency)
 {
-  // setup pins
+  // Seteamos el pin de SS (slave select) del SPI
   pinMode(_ss, OUTPUT);
   digitalWrite(_ss, HIGH);
 
-  
-  
+  //Damos un reset al módulo
   if (_reset!= -1) {
     pinMode(_reset, OUTPUT);
     digitalWrite(_reset, HIGH);
@@ -102,37 +102,35 @@ int LoRaClass::begin(long frequency)
     delay(10);
   }
 
-  // start SPI
+  // Empezamos SPI con los pines (SPI usa modo 0, predeterminado en ESP32)
   _spi->begin(_sck, _miso, _mosi);
 
-  // put in sleep mode
-  //sleep();
-
-  // check version
+  // Se chequea la versión (0x12) Además, sirve para comprobar la comunicación mediante SPI
   uint8_t version = readRegister(REG_VERSION);
   if (version != 0x12) {
+    //Si el número de versión es distinta, sale de la función
+    //Un error común es que devuelva 0, indicando un error en la transmisión por SPI
     Serial.println(readRegister(REG_VERSION));
-    return 0;
-    
+    return 0; 
   }
 
-  // put in sleep mode
+  // Ponemos en modo de sleep (Los registros deben ser modificados solo en modo sleep o Standby)
   sleep();
 
-  // set frequency
+  // Se setea la frecuencia
   setFrequency(frequency);
 
-  // set base addresses
+  // Escribimos la dirección base de los punteros de transmisión y recepción en el buffer
   writeRegister(REG_FIFO_TX_BASE_ADDR, 0);
   writeRegister(REG_FIFO_RX_BASE_ADDR, 0);
 
-  // set LNA boost
+  // Seteamos el LNA (low-noise amplifier) a corriente aumentada (recomendado)
   writeRegister(REG_LNA, readRegister(REG_LNA) | 0x03);
 
   // set auto AGC
   writeRegister(REG_MODEM_CONFIG_3, 0x04);
 
-  // set output power to 20 dBm
+  // Seteamos la potencia de transmisión a 20dbm (máximo)
   setTxPower(20);
 
   // put in standby mode
@@ -413,11 +411,23 @@ void LoRaClass::receive(int size)
 }
 #endif
 
+//Funcion que cambia el modo del modulo a Standby. 
 void LoRaClass::idle()
 {
   writeRegister(REG_OP_MODE, MODE_LONG_RANGE_MODE | MODE_STDBY);
 }
 
+/*Funcion que cambia el modo del modulo a sleep. Los modos se cambian escribiendo los bits 2-0 del registro
+REG_OP_MODE(0x01) el valor del modo deseado 
+000 --> SLEEP
+001 --> STDBY
+010 --> Frequency synthesis TX (FSTX)
+011 --> Transmit (TX)
+100 --> Frequency synthesis RX (FSRX)
+101 --> Receive continuous (RXCONTINUOUS)
+110 --> receive single (RXSINGLE)
+111 --> Channel activity detection (CAD) 
+Además, se debe poenr el bit 7 del mismo registro a 1, para indicar que se trata de modos LoRa*/
 void LoRaClass::sleep()
 {
   writeRegister(REG_OP_MODE, MODE_LONG_RANGE_MODE | MODE_SLEEP);
@@ -460,6 +470,9 @@ void LoRaClass::setTxPower(int level, int outputPin)
   }
 }
 
+/*Función que setea la frecuencia, modificando los registros REG_FRF_MSB, REG_FRF_MID y REG_FRF_LSB
+para hallar el valor a setear en los registros, se usa la siguiente formula:
+valor_registro=frecuencia*2^19 / 32*10^6 */
 void LoRaClass::setFrequency(long frequency)
 {
   _frequency = frequency;
@@ -724,16 +737,22 @@ void LoRaClass::handleDio0Rise()
   }
 }
 
+/*Para indicar lectura de registro, el primer bit a enviar debe ser 0
+Este bit se pone a 0 en esta función */
 uint8_t LoRaClass::readRegister(uint8_t address)
 {
   return singleTransfer(address & 0x7f, 0x00);
 }
 
+/*Para indicar escritura de registro, el primer bit a enviar debe ser 1
+este bit se setea en esta función*/
 void LoRaClass::writeRegister(uint8_t address, uint8_t value)
 {
   singleTransfer(address | 0x80, value);
 }
 
+//Función que transfiere un byte con la dirección, y retorna un byte con el valor de la dirección o escribe un byte en la dirección dada
+//Dependiendo del valor del bit 7 del primer byte.
 uint8_t LoRaClass::singleTransfer(uint8_t address, uint8_t value)
 {
   uint8_t response;
