@@ -11,7 +11,10 @@
 
     User guide:
     RN2903: https://ww1.microchip.com/downloads/en/DeviceDoc/RN2903%20LoRa%20Technology%20Module%20Command%20Reference%20User%20Guide-40001811B.pdf 
-
+    
+  - Para modificar el SP(Spreading factor), BW(Bandwith), CR(code Rate), el canal y la longitud de preámbulo, cambiar las definiciones al inicio del programa. 
+    (Funciona para los módulos 1 y 2)
+  - Para cambiar entre transmisión, recepción, comentar y descomentar la linea respectiva en la función Loop.
 */
 
 #include <Arduino.h>
@@ -22,9 +25,9 @@
 #include "rn2xx3.h"
 
 //Definiciones para la libreria
-#define LORA_BW               125E3         //Bandwith
-#define LORA_SP               12            //Spreading Factor
-#define LORA_CHANNEL          915E6   
+#define LORA_BW               500E3         //Bandwith
+#define LORA_SP               7             //Spreading Factor
+#define LORA_CHANNEL          433E6         //Canal
 #define LORA_SYNCWORD         0x12          
 #define LORA_CR               5             //Coding rate (4/x)
 #define LORA_PL               8             //Preamble length (x+4)
@@ -41,8 +44,11 @@ char message_sent[]="hola";
 int delay_time=5;
 int counter=0;
 
-//Creamos una instancia de rnx2xx3 para la comunicación con el módulo 3
-rn2xx3 myLora(Serial1);
+//Creamos una instancia de rn2xx3 para la comunicación con el módulo 3
+//rn2xx3 myLora(Serial1);
+
+//Abrimos un canal de hardware Serial
+HardwareSerial loraSerial(1);
 
 //Funciones usadas en el programa
 void Ini_module_spi(byte m); 
@@ -104,8 +110,8 @@ void loop(void)
   }
   
   //Comentar o descomentar para los módulos en modo de transmisión/recepción
-  //status=send_message(MODO, message_sent, delay_time, true); (Modulo de emision, mensaje a enviar, delay entre mensajes, con/sin mensaje de confirmación)
-  status=receive_message(MODO, 20, true);
+  //status=send_message(MODO, message_sent, delay_time, true); //(Modulo de emision, mensaje a enviar, delay entre mensajes, con/sin mensaje de confirmación)
+  status=receive_message(MODO, 20, true); //(Modulo de emision, tiempo de espera, con/sin mensaje de confirmación)
 
   //Serial.println(status);
   delay(100);
@@ -114,6 +120,7 @@ void loop(void)
 uint8_t send_message(uint8_t module, char *message, uint8_t seconds, boolean control){
   uint8_t status = 0;
   uint8_t i = 0;
+  String str;
   if (module==1 || module==2){
     // Enviamos un mensaje   
     Serial.println("Start sending message"); 
@@ -138,8 +145,8 @@ uint8_t send_message(uint8_t module, char *message, uint8_t seconds, boolean con
       LoRa.receive();
       for(i=0; i<10; i++) {
         int packetSize = LoRa.parsePacket();
+        LoRa.receive();
         if (packetSize) {
-          Serial.print(".");
           String LoRaData = LoRa.readString();
           if (LoRaData=="OK"){
             Serial.println("Message confirmed");
@@ -154,7 +161,15 @@ uint8_t send_message(uint8_t module, char *message, uint8_t seconds, boolean con
     }  
 
   } else if (module == 3){
-    
+    digitalWrite(LED,1);
+    loraSerial.println("radio tx 20");
+    str = loraSerial.readStringUntil('\n');
+    Serial.println(str);
+    str = loraSerial.readStringUntil('\n');
+    Serial.println(str);
+    digitalWrite(LED,0);
+    delay(200);
+
   }
   Serial.println(""); 
   counter++;
@@ -165,21 +180,25 @@ uint8_t send_message(uint8_t module, char *message, uint8_t seconds, boolean con
 uint8_t receive_message(uint8_t module, char seconds, boolean control){
   uint8_t i=0;
   uint8_t status=0;
+  String str;
   if (module==1 || module==2){
     LoRa.receive();
     //Esperamos a recibir un mensaje
     while(i < seconds ){
+      // Verificamos si se recibió un paquete
       int packetSize = LoRa.parsePacket();
+      LoRa.receive();
       if (packetSize) {
-        // received a packet
+        Serial.print("N° of bytes received: ");
+        Serial.println(packetSize);
         Serial.print("Received packet: '");
-        // read packet
+        // Leemos el paquete
         while (LoRa.available()) { 
           Serial.print(LoRa.readString()); 
         }
 
         // Imprimimos el RSSI
-        Serial.print("' with RSSI ");
+        Serial.print("' with RSSI: ");
         Serial.println(LoRa.packetRssi());
         
         if(control == true){
@@ -205,7 +224,32 @@ uint8_t receive_message(uint8_t module, char seconds, boolean control){
     }
 
   } else if (module == 3){
+    Serial.println("waiting for a message");
+    loraSerial.println("radio rx 0"); //wait for 60 seconds to receive
     
+    str = loraSerial.readStringUntil('\n');
+    if ( str.indexOf("ok") == 0 )
+    {
+      str = String("");
+      while(str=="")
+      {
+        str = loraSerial.readStringUntil('\n');
+      }
+      Serial.println(str);
+      if ( str.indexOf("radio_rx") == 0 )
+      {
+        digitalWrite(LED, !digitalRead(LED));
+      }
+      else
+      {
+        Serial.println("Received nothing");
+      }
+    }
+    else
+    {
+      Serial.println("radio not going into receive mode");
+      delay(1000);
+    }
   }
   if (status == 0) { Serial.println("No message received"); }
   Serial.println("");
@@ -230,9 +274,9 @@ void Ini_module_spi(byte m)
 
   LoRa.setSyncWord(LORA_SYNCWORD);              //Seteamos la dirección de sincronización
   LoRa.setSpreadingFactor(LORA_SP);             //Seteamos el Spreading Factor (SP)
-  LoRa.setSignalBandwidth(LORA_BW);             //Seteamos El ancho de banda
+  LoRa.setSignalBandwidth(LORA_BW);             //Seteamos el ancho de banda
   LoRa.setCodingRate4(LORA_CR);                 //Seteamos el Coding rate (4/(x))
-  LoRa.setPreambleLength(LORA_PL);              //Seteamos la longitud del preambulo (x+4)
+  LoRa.setPreambleLength(LORA_PL);              //Seteamos la longitud del preámbulo (x+4)
 
 
   // Mensaje de comprobación
@@ -243,17 +287,113 @@ void Ini_module_spi(byte m)
 
 void Ini_module3()
 {
-  // Abrimos puerto serial del módulo 3 (RN2903)
-  Serial1.begin(9600, SERIAL_8N1, RX, TX);
+  String str;
 
+  // Abrimos puerto serial del módulo 3 (RN2903)
+  //Serial1.begin(9600, SERIAL_8N1, RX, TX);
+
+  loraSerial.begin(9600, SERIAL_8N1, RX, TX);
+  loraSerial.setTimeout(1000);
+  
+  //Establecemos bps con el módulo
+  String response = "";
+  while (response=="")
+  {
+    delay(1000);
+    loraSerial.write((byte)0x00);
+    loraSerial.write(0x55);
+    loraSerial.println();
+    loraSerial.println("sys get ver");
+    response = loraSerial.readStringUntil('\n');
+  }
+
+  digitalWrite(LED,1);
+  delay(1000);
+  digitalWrite(LED,0);
+
+  Serial.println("Initing LoRa");
+  
+  //loraSerial.listen();
+  str = loraSerial.readStringUntil('\n');
+  Serial.println(str);
+  loraSerial.println("sys get ver");
+  str = loraSerial.readStringUntil('\n');
+  Serial.println(str);
+  
+  loraSerial.println("mac pause");
+  str = loraSerial.readStringUntil('\n');
+  Serial.println(str);
+  
+//  loraSerial.println("radio set bt 0.5");
+//  wait_for_ok();
+  
+  loraSerial.println("radio set mod lora");
+  str = loraSerial.readStringUntil('\n');
+  Serial.println(str);
+  
+  loraSerial.println("radio set freq 915000000");
+  str = loraSerial.readStringUntil('\n');
+  Serial.println(str);
+  
+  loraSerial.println("radio set pwr 14");
+  str = loraSerial.readStringUntil('\n');
+  Serial.println(str);
+  
+  loraSerial.println("radio set sf sf7");
+  str = loraSerial.readStringUntil('\n');
+  Serial.println(str);
+  
+  loraSerial.println("radio set afcbw 41.7");
+  str = loraSerial.readStringUntil('\n');
+  Serial.println(str);
+  
+  loraSerial.println("radio set rxbw 125");
+  str = loraSerial.readStringUntil('\n');
+  Serial.println(str);
+  
+//  loraSerial.println("radio set bitrate 50000");
+//  wait_for_ok();
+  
+//  loraSerial.println("radio set fdev 25000");
+//  wait_for_ok();
+  
+  loraSerial.println("radio set prlen 8");
+  str = loraSerial.readStringUntil('\n');
+  Serial.println(str);
+  
+  loraSerial.println("radio set crc on");
+  str = loraSerial.readStringUntil('\n');
+  Serial.println(str);
+  
+  loraSerial.println("radio set iqi off");
+  str = loraSerial.readStringUntil('\n');
+  Serial.println(str);
+  
+  loraSerial.println("radio set cr 4/5");
+  str = loraSerial.readStringUntil('\n');
+  Serial.println(str);
+  
+  loraSerial.println("radio set wdt 60000"); //disable for continuous reception
+  str = loraSerial.readStringUntil('\n');
+  Serial.println(str);
+  
+  loraSerial.println("radio set sync 12");
+  str = loraSerial.readStringUntil('\n');
+  Serial.println(str);
+  
+  loraSerial.println("radio set bw 125");
+  str = loraSerial.readStringUntil('\n');
+  Serial.println(str);
+
+  Serial.println("starting loop");
 }
 
 void End_modules(){
   Serial1.end();
   LoRa.end();
-  digitalWrite(RST1,1);
-  digitalWrite(RST2,1);
-  digitalWrite(RST3,1);
+  digitalWrite(RST1,0);
+  digitalWrite(RST2,0);
+  digitalWrite(RST3,0);
 }
 
 void EnableDevice(byte m){

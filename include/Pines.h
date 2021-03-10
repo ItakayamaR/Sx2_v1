@@ -9,10 +9,10 @@
 
 //Definimos pines para el modulo 1 (RFM98W)
 #define DIO0_1 25
-#define DIO1_1 23
+#define DIO1_1 33
 #define DIO2_1 32
 #define RST1 26
-#define SS1 37
+#define SS1 27
 
 //Definimos pines para el modulo 2 (RA-02)
 #define DIO0_2 21

@@ -272,7 +272,7 @@ class rn2xx3
     //the appskey/appkey to use for LoRa WAN
     String _appskey = "0";
 
-    // The downlink messenge
+    // The downlink messenge1
     String _rxMessenge = "";
 
     String _lastErrorInvalidParam = "";
