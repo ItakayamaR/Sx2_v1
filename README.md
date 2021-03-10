@@ -1,7 +1,7 @@
 # Sx2_V1
 Programa para pruebas con los modulos lora RFM98W, RA-02 (433) y RN2903 (915)
-  Empresa: Diacsa
-  Autor: Ismael Takayama
+Empresa: Diacsa
+Autor: Ismael Takayama
 
 Para modificar el SP(Spreading factor), BW(Bandwith), CR(code Rate), el canal y la longitud de preámbulo, cambiar las definiciones al inicio del programa. (Funciona para los módulos 1 y 2)
 
