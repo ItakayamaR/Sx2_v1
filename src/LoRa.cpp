@@ -114,7 +114,7 @@ int LoRaClass::begin(long frequency)
     return 0; 
   }
 
-  // Ponemos en modo de sleep (Los registros deben ser modificados solo en modo sleep o Standby)
+  // Ponemos en modo de sleep (Los registros deben ser modificados solo en modo Sleep o Standby)
   sleep();
 
   // Se setea la frecuencia
@@ -124,21 +124,25 @@ int LoRaClass::begin(long frequency)
   writeRegister(REG_FIFO_TX_BASE_ADDR, 0);
   writeRegister(REG_FIFO_RX_BASE_ADDR, 0);
 
-  // Seteamos el LNA (low-noise amplifier) a corriente aumentada (recomendado)
+  // Seteamos el LNA (low-noise amplifier) a corriente aumentada (recomendado) 
+  // Solo sirve para frecuencias superiores a 526
+  // Para esto ponemos a 1 el bit 2 del registro REG_LNA (0x0c) 
   writeRegister(REG_LNA, readRegister(REG_LNA) | 0x03);
 
-  // set auto AGC
-  writeRegister(REG_MODEM_CONFIG_3, 0x04);
+  // Seteamos auto AGC (Control automático de ganancias)
+  // Ponemos a 1 el bit 3 del registro REG_MODEM_CONFIG_3
+  writeRegister(REG_MODEM_CONFIG_3, readRegister(REG_MODEM_CONFIG_3) | 0x04);
 
   // Seteamos la potencia de transmisión a 20dbm (máximo)
   setTxPower(20);
 
-  // put in standby mode
+  // Regresamos a modo standby
   idle();
 
   return 1;
 }
 
+// Función para terminar la comunicación con el módulo usado.
 void LoRaClass::end()
 {
   // put in sleep mode
@@ -148,39 +152,48 @@ void LoRaClass::end()
   _spi->end();
 }
 
+/*Función para configurar el inicio de una transmisión. Se define modo implicito/explicito
+y se resetea la dirección base del buffer y la cantidad de bytes del mensaje*/
 int LoRaClass::beginPacket(int implicitHeader)
 {
+  //Si existe un mensaje transmitiendo, saale de la función
   if (isTransmitting()) {
     return 0;
   }
 
-  // put in standby mode
+  // Ponemos el módulo en estado Standby (idle)
   idle();
 
+  //Definimos el modo en el que nos encontrarmos (por defecto modo explicito)
   if (implicitHeader) {
     implicitHeaderMode();
   } else {
     explicitHeaderMode();
   }
 
-  // reset FIFO address and paload length
+  // Reseteamos la dirección del FIFO y la cantidad de bytes del mensaje
   writeRegister(REG_FIFO_ADDR_PTR, 0);
   writeRegister(REG_PAYLOAD_LENGTH, 0);
 
   return 1;
 }
 
-int LoRaClass::endPacket(bool async)
+
+//Función para empezar el envío de mensajes
+int LoRaClass::endPacket(bool async) // Por defecto se configura en modo asincrónico
 {
+  // Si nos encontramos en modo asincrónico 
+  // Configuramos el pin DIO0 para que se ponga a 1 cuando se termine de enviar un mensaje
   if ((async) && (_onTxDone)){
       writeRegister(REG_DIO_MAPPING_1, 0x40); // DIO0 => TXDONE
   }
-  // put in TX mode 
+  // Ponemos en modo transmisión. Al terminar de enviar el mensaje, el modo pasará automáticamente a idle
   writeRegister(REG_OP_MODE, MODE_LONG_RANGE_MODE | MODE_TX);
   //delay(500);
 
+  //Si no nos encontrarmos en modo asincronico, esperamos a una bandera para saber que el mensaje ha sido enviado
   if (!async) {
-    // wait for TX done
+    // Esperamos mientras el mensaje se termina de enviar. el bit 3 del registro REG_IRQ_FLAGS debe ponerse a 1
     while ((readRegister(REG_IRQ_FLAGS) & IRQ_TX_DONE_MASK) == 0) 
     {
       //Serial.print(".");
@@ -191,19 +204,21 @@ int LoRaClass::endPacket(bool async)
       //delay(1000);
     }
     
-    // clear IRQ's
+    // Limpiamos las  banderas
     writeRegister(REG_IRQ_FLAGS, IRQ_TX_DONE_MASK);
   }
-  //Serial.println("llego aqui final");
   return 1;
 }
 
+//Función que retorna verdadero si un mensaje se encuentra en transmisión
 bool LoRaClass::isTransmitting()
 {
+  //Consulta si se encuentra en modo TX. Cuando el mensaje se termina de enviar automáticamente pasa a modo STBY
   if ((readRegister(REG_OP_MODE) & MODE_TX) == MODE_TX) {
     return true;
   }
 
+  //Limpia la bandera de mensaje transmitido
   if (readRegister(REG_IRQ_FLAGS) & IRQ_TX_DONE_MASK) {
     // clear IRQ's
     writeRegister(REG_IRQ_FLAGS, IRQ_TX_DONE_MASK);
@@ -231,7 +246,7 @@ int LoRaClass::parsePacket(int size)
 
   //Serial.println(irqFlags); 
 
-  if ((irqFlags & IRQ_RX_DONE_MASK) /*&& (irqFlags & IRQ_PAYLOAD_CRC_ERROR_MASK) == 0*/) {
+  if ((irqFlags & IRQ_RX_DONE_MASK) && (irqFlags & IRQ_PAYLOAD_CRC_ERROR_MASK) == 0) {
     // received a packet
     _packetIndex = 0;
 
@@ -294,26 +309,30 @@ int LoRaClass::rssi()
   return (readRegister(REG_RSSI_VALUE) - (_frequency < RF_MID_BAND_THRESHOLD ? RSSI_OFFSET_LF_PORT : RSSI_OFFSET_HF_PORT));
 }
 
+//Función para escribir un mensaje en el FIFO
 size_t LoRaClass::write(uint8_t byte)
 {
   return write(&byte, sizeof(byte));
 }
 
+//Función para escribir un mensaje en el FIFO 
 size_t LoRaClass::write(const uint8_t *buffer, size_t size)
 {
+  // Leemos la cantidad de bytes presentes en el FIFO
   int currentLength = readRegister(REG_PAYLOAD_LENGTH);
 
-  // check size
+  // Chequeamos que la nueva cantidad más la cantidad existente no sobrepase la longitud máxima del mensaje
+  // En caso se sobrepase, solo se escriban bytes hasta el límite permitido
   if ((currentLength + size) > MAX_PKT_LENGTH) {
     size = MAX_PKT_LENGTH - currentLength;
   }
 
-  // write data
+  // Escribimos la datat en el registro
   for (size_t i = 0; i < size; i++) {
     writeRegister(REG_FIFO, buffer[i]);
   }
 
-  // update length
+  // Actualizamos el número de bytes en el registro REG_PAYLOAD_LENGTH
   writeRegister(REG_PAYLOAD_LENGTH, currentLength + size);
 
   return size;
@@ -357,22 +376,15 @@ void LoRaClass::flush()
 {
 }
 
-#ifndef ARDUINO_SAMD_MKRWAN1300
 void LoRaClass::onReceive(void(*callback)(int))
 {
   _onReceive = callback;
 
   if (callback) {
     pinMode(_dio0, INPUT);
-#ifdef SPI_HAS_NOTUSINGINTERRUPT
-    SPI.usingInterrupt(digitalPinToInterrupt(_dio0));
-#endif
     attachInterrupt(digitalPinToInterrupt(_dio0), LoRaClass::onDio0Rise, RISING);
   } else {
     detachInterrupt(digitalPinToInterrupt(_dio0));
-#ifdef SPI_HAS_NOTUSINGINTERRUPT
-    SPI.notUsingInterrupt(digitalPinToInterrupt(_dio0));
-#endif
   }
 }
 
@@ -382,15 +394,9 @@ void LoRaClass::onTxDone(void(*callback)())
 
   if (callback) {
     pinMode(_dio0, INPUT);
-#ifdef SPI_HAS_NOTUSINGINTERRUPT
-    SPI.usingInterrupt(digitalPinToInterrupt(_dio0));
-#endif
     attachInterrupt(digitalPinToInterrupt(_dio0), LoRaClass::onDio0Rise, RISING);
   } else {
     detachInterrupt(digitalPinToInterrupt(_dio0));
-#ifdef SPI_HAS_NOTUSINGINTERRUPT
-    SPI.notUsingInterrupt(digitalPinToInterrupt(_dio0));
-#endif
   }
 }
 
@@ -409,7 +415,7 @@ void LoRaClass::receive(int size)
 
   writeRegister(REG_OP_MODE, MODE_LONG_RANGE_MODE | MODE_RX_CONTINUOUS);
 }
-#endif
+
 
 //Funcion que cambia el modo del modulo a Standby. 
 void LoRaClass::idle()
@@ -427,14 +433,16 @@ REG_OP_MODE(0x01) el valor del modo deseado
 101 --> Receive continuous (RXCONTINUOUS)
 110 --> receive single (RXSINGLE)
 111 --> Channel activity detection (CAD) 
-Además, se debe poenr el bit 7 del mismo registro a 1, para indicar que se trata de modos LoRa*/
+Además, se debe poner el bit 7 del mismo registro a 1, para indicar que se trata de modos LoRa*/
 void LoRaClass::sleep()
 {
   writeRegister(REG_OP_MODE, MODE_LONG_RANGE_MODE | MODE_SLEEP);
 }
 
+//Función para cambiar la potencia de transmisión.
 void LoRaClass::setTxPower(int level, int outputPin)
 {
+  //Si se utiliza el pin de transmisión PA_HF/LF (alta eficiencia, menor amplificación (hasta 14 dBm))
   if (PA_OUTPUT_RFO_PIN == outputPin) {
     // RFO
     if (level < 0) {
@@ -442,30 +450,38 @@ void LoRaClass::setTxPower(int level, int outputPin)
     } else if (level > 14) {
       level = 14;
     }
-
+    //Se escribe el nivel deseado bajo la formula Pout=15-(15-level)
     writeRegister(REG_PA_CONFIG, 0x70 | level);
+
+  //Si se utiliza el pin de transmisión PA_BOOST (Permite una amplificación de hasta 20 dBm)
+  //Pin conectado por default en la mayoría de módulos
   } else {
-    // PA BOOST
+    // Si se escoge una potencia mayor a 17, se debe activar un registro adicional
     if (level > 17) {
       if (level > 20) {
         level = 20;
       }
-
       // subtract 3 from level, so 18 - 20 maps to 15 - 17
       level -= 3;
 
-      // High Power +20 dBm Operation (Semtech SX1276/77/78/79 5.4.3.)
+      // Registro adicional para potencias de 20 dBm
       writeRegister(REG_PA_DAC, 0x87);
+      // Se adapta el nivel de protección de sobrecorriente (OCP) al nivel de poder actual
       setOCP(240);
+
+    //Si se escoge una potencia menor a 17, se escribe en el registro el valor deseado -2
     } else {
       if (level < 2) {
         level = 2;
       }
-      //Default value PA_HF/LF or +17dBm
+      //Valor por default para pin PA_HF/LF o potencias menores a +17dBm
       writeRegister(REG_PA_DAC, 0x84);
+      // Se adapta el nivel de protección de sobrecorriente (OCP) al nivel de poder actual
       setOCP(100);
     }
 
+    // En el registro REG_PA_CONFIG (0x09) se setea a 1 el bit 7 para indicar que se usa el pin PA_BOOST
+    // En los bits 3-0 se escribe el valor de corriente calculado
     writeRegister(REG_PA_CONFIG, PA_BOOST | (level - 2));
   }
 }
@@ -489,14 +505,18 @@ int LoRaClass::getSpreadingFactor()
   return readRegister(REG_MODEM_CONFIG_2) >> 4;
 }
 
+//Función para setear el spreading factor (SF)
 void LoRaClass::setSpreadingFactor(int sf)
 {
+  //Se definen los límites
   if (sf < 6) {
     sf = 6;
   } else if (sf > 12) {
     sf = 12;
   }
 
+  // Si seteamos el SF a 6 (máxima velocidad) se deben setear los siguientes valores en los registros
+  // REG_SYNC_WORD(0x31) y REG_DETECTION_THRESHOLD(0x37)
   if (sf == 6) {
     writeRegister(REG_DETECTION_OPTIMIZE, 0xc5);
     writeRegister(REG_DETECTION_THRESHOLD, 0x0c);
@@ -505,7 +525,10 @@ void LoRaClass::setSpreadingFactor(int sf)
     writeRegister(REG_DETECTION_THRESHOLD, 0x0a);
   }
 
+  // Se escribe el spreading factor en los bits (7-4) del registro REG_MODEM_CONFIG_2 (0x1e)
   writeRegister(REG_MODEM_CONFIG_2, (readRegister(REG_MODEM_CONFIG_2) & 0x0f) | ((sf << 4) & 0xf0));
+
+  // Seteamos un registro especial si la duración de un símbolo excede 16 ms
   setLdoFlag();
 }
 
@@ -529,10 +552,11 @@ long LoRaClass::getSignalBandwidth()
   return -1;
 }
 
+//Función para setear el ancho de canal
 void LoRaClass::setSignalBandwidth(long sbw)
 {
   int bw;
-
+  //Comparamos el valor dado con una tabla establecida
   if (sbw <= 7.8E3) {
     bw = 0;
   } else if (sbw <= 10.4E3) {
@@ -555,16 +579,23 @@ void LoRaClass::setSignalBandwidth(long sbw)
     bw = 9;
   }
 
+  // Se escribe en los bits (4-7) del registro REG_MODEM_CONFIG_1(0x1d) el valor calculado 
   writeRegister(REG_MODEM_CONFIG_1, (readRegister(REG_MODEM_CONFIG_1) & 0x0f) | (bw << 4));
+
+  // Seteamos un registro especial si la duración de un símbolo excede 16 ms
   setLdoFlag();
 }
 
+/* Función para setear el bit 3 del registro REG_MODEM_CONFIG_3(0x26) si la duración del un símbolo 
+excede los 16 ms. Esto activa la optimización de velocidad de datos bajo LowDataRateOptimize que 
+incrementa la robustez ante variaciones en frecuencia durante la duracón del la transmisión y 
+recepcion de mensajes */ 
 void LoRaClass::setLdoFlag()
 {
-  // Section 4.1.1.5
+  // Seccion 4.1.1.5 datasheet Sx1276 (función para calcular la duración de canal en base al WB y SF)
   long symbolDuration = 1000 / ( getSignalBandwidth() / (1L << getSpreadingFactor()) ) ;
 
-  // Section 4.1.1.6
+  // Sección 4.1.1.6 datasheet Sx1276
   boolean ldoOn = symbolDuration > 16;
 
   uint8_t config3 = readRegister(REG_MODEM_CONFIG_3);
@@ -572,40 +603,55 @@ void LoRaClass::setLdoFlag()
   writeRegister(REG_MODEM_CONFIG_3, config3);
 }
 
+// Función para setear el coding rate (de 4/5 a 4/8)
 void LoRaClass::setCodingRate4(int denominator)
 {
+  // Delimitamos los límites
   if (denominator < 5) {
     denominator = 5;
   } else if (denominator > 8) {
     denominator = 8;
   }
 
+  /*001 -> 4/5
+    010 -> 4/6
+    011 -> 4/7
+    100 -> 4/8 */
   int cr = denominator - 4;
-
+  
+  //Escribimos en los bits (3-1) del registro REG_MODEM_CONFIG_1 el valor calculado
   writeRegister(REG_MODEM_CONFIG_1, (readRegister(REG_MODEM_CONFIG_1) & 0xf1) | (cr << 1));
 }
 
+// Seteamos la longitud de preambulo (desde 6+4 hasta 65535+4)
 void LoRaClass::setPreambleLength(long length)
-{
+{  
+  //Existen dos registros para esto, REG_PREAMBLE_LSB para los bits 0-7 y REG_PREAMBLE_MSB para los bits 8-15
   writeRegister(REG_PREAMBLE_MSB, (uint8_t)(length >> 8));
   writeRegister(REG_PREAMBLE_LSB, (uint8_t)(length >> 0));
 }
 
+/*Seteamos la dirección de sincronización. Esta sirve para definir una dirección común a todos
+los dispositivos de una red 
+Esta se escribe en el registro REG_SYNC_WORD(0x39) */
 void LoRaClass::setSyncWord(int sw)
 {
   writeRegister(REG_SYNC_WORD, sw);
 }
 
+//Habilitamos el envío de crc seteando un 1 en el bit 2 del registro REG_MODEM_CONFIG_2 (0x1e)
 void LoRaClass::enableCrc()
 {
   writeRegister(REG_MODEM_CONFIG_2, readRegister(REG_MODEM_CONFIG_2) | 0x04);
 }
 
+//Deshabilitamos el envío de crc poniendo a 0 el bit 2 del registro REG_MODEM_CONFIG_2 (0x1e)
 void LoRaClass::disableCrc()
 {
   writeRegister(REG_MODEM_CONFIG_2, readRegister(REG_MODEM_CONFIG_2) & 0xfb);
 }
 
+//Invierte las señales I e Q de la modulación de Lora
 void LoRaClass::enableInvertIQ()
 {
   writeRegister(REG_INVERTIQ,  0x66);
@@ -618,6 +664,12 @@ void LoRaClass::disableInvertIQ()
   writeRegister(REG_INVERTIQ2, 0x1d);
 }
 
+
+/* Función que habilita la protección contra sobrecorrientes (Overload current protection)
+Se usaa las siguientes formulas:
+Imax = 45+5*OcpTrim [mA] if OcpTrim <= 15 (120 mA) 
+Imax = -30+10*OcpTrim [mA] if 15 < OcpTrim <= 27 (130 to 240 mA)
+Default Imax = 100mA */
 void LoRaClass::setOCP(uint8_t mA)
 {
   uint8_t ocpTrim = 27;
@@ -627,7 +679,7 @@ void LoRaClass::setOCP(uint8_t mA)
   } else if (mA <=240) {
     ocpTrim = (mA + 30) / 10;
   }
-
+  // En el registro REG_OCP (0x0b) se pone a 1 el bit 5 para habilitar el OCR, y en ls  bis 0-4 el valor de opctrim calculado
   writeRegister(REG_OCP, 0x20 | (0x1F & ocpTrim));
 }
 
@@ -692,17 +744,23 @@ void LoRaClass::dumpRegisters(Stream& out)
   }
 }
 
+/*Función para defnir el modo explicito 
+El modo explicito añade una cabecera al m mensaaje que contiene información sobre el número de bytes,
+el coding rate y si se usó un CRC */
 void LoRaClass::explicitHeaderMode()
 {
   _implicitHeaderMode = 0;
-
+  // El modo explicito se define poniendo a 0 el bit 0 del registro REG_MODEM_CONFIG_1(0x1d)
   writeRegister(REG_MODEM_CONFIG_1, readRegister(REG_MODEM_CONFIG_1) & 0xfe);
 }
 
+/*Función para defnir el modo implpicito
+El modo explicito añade no incluye cabecera, por lo cual los datos del número de bytes, el coding rate y
+el uso de crc debe estár defiinidos de antemano en el receptor */
 void LoRaClass::implicitHeaderMode()
 {
   _implicitHeaderMode = 1;
-
+  // El modo explicito se define seteando a 1 el bit 0 del registro REG_MODEM_CONFIG_1(0x1d)
   writeRegister(REG_MODEM_CONFIG_1, readRegister(REG_MODEM_CONFIG_1) | 0x01);
 }
 
