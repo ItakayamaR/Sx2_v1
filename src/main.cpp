@@ -26,10 +26,10 @@
 
 //Definiciones para la libreria
 #define LORA_BW               500E3         //Bandwith
-#define LORA_SP               7             //Spreading Factor
+#define LORA_SP               12            //Spreading Factor
 #define LORA_CHANNEL          433E6         //Canal
 #define LORA_SYNCWORD         0x12          
-#define LORA_CR               5             //Coding rate (4/x)
+#define LORA_CR               8             //Coding rate (4/x)
 #define LORA_PL               8             //Preamble length (x+4)
 #define LORA_ADDRESS          4
 #define LORA_SEND_TO_ADDRESS  2
@@ -145,7 +145,7 @@ uint8_t send_message(uint8_t module, char *message, uint8_t seconds, boolean con
       LoRa.receive();
       for(i=0; i<10; i++) {
         int packetSize = LoRa.parsePacket();
-        LoRa.receive();
+        //LoRa.receive();
         if (packetSize) {
           String LoRaData = LoRa.readString();
           if (LoRaData=="OK"){
@@ -187,12 +187,12 @@ uint8_t receive_message(uint8_t module, char seconds, boolean control){
     while(i < seconds ){
       // Verificamos si se recibió un paquete
       int packetSize = LoRa.parsePacket();
-      LoRa.receive();
+      //LoRa.receive();
       if (packetSize) {
         Serial.print("N° of bytes received: ");
         Serial.println(packetSize);
         Serial.print("Received packet: '");
-        // Leemos el paquete
+        // Leemos el paquete 
         while (LoRa.available()) { 
           Serial.print(LoRa.readString()); 
         }
@@ -202,6 +202,7 @@ uint8_t receive_message(uint8_t module, char seconds, boolean control){
         Serial.println(LoRa.packetRssi());
         
         if(control == true){
+          delay(500);
           Serial.println("Sending confirmation"); 
           LoRa.beginPacket();
           LoRa.print("OK");
